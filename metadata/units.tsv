@@ -1,0 +1,3 @@
+sample_id	unit	fq1	fq2
+SOIL01	L001	tests/data/SOIL01_R1.fastq.gz	tests/data/SOIL01_R2.fastq.gz
+SOIL02	L001	tests/data/SOIL02_R1.fastq.gz	tests/data/SOIL02_R2.fastq.gz

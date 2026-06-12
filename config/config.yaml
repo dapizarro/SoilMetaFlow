@@ -1,0 +1,48 @@
+# Soil shotgun metagenomics pipeline configuration
+project: soil_metagenomics
+samples: metadata/samples.tsv
+units: metadata/units.tsv
+outdir: results
+threads_default: 8
+
+# Input read layout: paired-end FASTQ.gz expected by default.
+read_suffix_r1: _R1.fastq.gz
+read_suffix_r2: _R2.fastq.gz
+
+# Databases: edit these paths before running on real data.
+databases:
+  host_bowtie2_index: resources/host/host_index       # optional; leave empty to skip host filtering
+  kraken2: resources/db/kraken2_standard             # Kraken2 database
+  bracken: resources/db/bracken                      # Bracken database matching Kraken2 db
+  eggnog: resources/db/eggnog                        # eggNOG-mapper data directory
+  gtdbtk: resources/db/gtdbtk                        # GTDB-Tk data path
+  checkm2: resources/db/checkm2/CheckM2_database/uniref100.KO.1.dmnd
+
+params:
+  fastp:
+    length_required: 50
+    qualified_quality_phred: 20
+    unqualified_percent_limit: 40
+  megahit:
+    min_contig_len: 1000
+  prodigal:
+    mode: meta
+  binning:
+    min_contig_len: 1500
+  bracken:
+    read_length: 150
+    level: S
+  mag_filter:
+    min_completeness: 50
+    max_contamination: 10
+
+# Optional modules. Set to false if databases/tools are not available.
+modules:
+  host_decontamination: false
+  assembly: true
+  gene_prediction: true
+  taxonomic_profiling: true
+  functional_annotation: true
+  binning: true
+  mag_qc: true
+  mag_taxonomy: false

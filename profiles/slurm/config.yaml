@@ -1,0 +1,25 @@
+executor: slurm
+jobs: 40
+latency-wait: 60
+use-conda: true
+printshellcmds: true
+keep-going: true
+rerun-incomplete: true
+default-resources:
+  slurm_account: null
+  slurm_partition: long
+  mem_mb: 16000
+  runtime: 240
+set-resources:
+  megahit:
+    mem_mb: 128000
+    runtime: 1440
+  kraken2:
+    mem_mb: 96000
+    runtime: 360
+  eggnog_mapper:
+    mem_mb: 64000
+    runtime: 1440
+  checkm2:
+    mem_mb: 64000
+    runtime: 1440

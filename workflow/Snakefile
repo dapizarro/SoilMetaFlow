@@ -1,0 +1,229 @@
+import os
+import pandas as pd
+
+configfile: "config/config.yaml"
+
+OUTDIR = config.get("outdir", "results")
+UNITS = pd.read_csv(config["units"], sep="\t")
+SAMPLES = sorted(UNITS.sample_id.unique())
+MODULES = config.get("modules", {})
+
+
+def fq1(wildcards):
+    row = UNITS[(UNITS.sample_id == wildcards.sample) & (UNITS.unit == wildcards.unit)]
+    return row.fq1.values[0]
+
+
+def fq2(wildcards):
+    row = UNITS[(UNITS.sample_id == wildcards.sample) & (UNITS.unit == wildcards.unit)]
+    return row.fq2.values[0]
+
+
+def units_for_sample(sample):
+    return list(UNITS.loc[UNITS.sample_id == sample, "unit"])
+
+qc_targets = expand(f"{OUTDIR}/qc/fastqc/raw/{{sample}}_{{unit}}_R1_fastqc.html", zip, sample=UNITS.sample_id, unit=UNITS.unit) + \
+             expand(f"{OUTDIR}/qc/fastqc/raw/{{sample}}_{{unit}}_R2_fastqc.html", zip, sample=UNITS.sample_id, unit=UNITS.unit) + \
+             expand(f"{OUTDIR}/qc/fastp/{{sample}}_{{unit}}.html", zip, sample=UNITS.sample_id, unit=UNITS.unit)
+
+tax_targets = expand(f"{OUTDIR}/taxonomy/bracken/{{sample}}.bracken", sample=SAMPLES) if MODULES.get("taxonomic_profiling", True) else []
+assembly_targets = expand(f"{OUTDIR}/assembly/{{sample}}/final.contigs.fa", sample=SAMPLES) if MODULES.get("assembly", True) else []
+gene_targets = expand(f"{OUTDIR}/genes/{{sample}}/proteins.faa", sample=SAMPLES) if MODULES.get("gene_prediction", True) else []
+func_targets = expand(f"{OUTDIR}/functional/eggnog/{{sample}}.annotations", sample=SAMPLES) if MODULES.get("functional_annotation", True) else []
+bin_targets = expand(f"{OUTDIR}/binning/metabat2/{{sample}}/bins.done", sample=SAMPLES) if MODULES.get("binning", True) else []
+mag_qc_targets = expand(f"{OUTDIR}/mags/checkm2/{{sample}}/quality_report.tsv", sample=SAMPLES) if MODULES.get("mag_qc", True) else []
+summary_targets = [f"{OUTDIR}/summary/sample_qc_summary.tsv"]
+
+rule all:
+    input:
+        qc_targets,
+        f"{OUTDIR}/qc/multiqc/multiqc_report.html",
+        tax_targets,
+        assembly_targets,
+        gene_targets,
+        func_targets,
+        bin_targets,
+        mag_qc_targets,
+        summary_targets
+
+rule fastqc_raw:
+    input:
+        r1=fq1,
+        r2=fq2
+    output:
+        html1=f"{OUTDIR}/qc/fastqc/raw/{{sample}}_{{unit}}_R1_fastqc.html",
+        zip1=f"{OUTDIR}/qc/fastqc/raw/{{sample}}_{{unit}}_R1_fastqc.zip",
+        html2=f"{OUTDIR}/qc/fastqc/raw/{{sample}}_{{unit}}_R2_fastqc.html",
+        zip2=f"{OUTDIR}/qc/fastqc/raw/{{sample}}_{{unit}}_R2_fastqc.zip"
+    threads: 2
+    conda: "envs/qc.yaml"
+    shell:
+        "fastqc -t {threads} -o {OUTDIR}/qc/fastqc/raw {input.r1} {input.r2}"
+
+rule fastp:
+    input:
+        r1=fq1,
+        r2=fq2
+    output:
+        r1=f"{OUTDIR}/clean/{{sample}}_{{unit}}_R1.clean.fastq.gz",
+        r2=f"{OUTDIR}/clean/{{sample}}_{{unit}}_R2.clean.fastq.gz",
+        html=f"{OUTDIR}/qc/fastp/{{sample}}_{{unit}}.html",
+        json=f"{OUTDIR}/qc/fastp/{{sample}}_{{unit}}.json"
+    threads: 8
+    conda: "envs/qc.yaml"
+    params:
+        length=config["params"]["fastp"]["length_required"],
+        q=config["params"]["fastp"]["qualified_quality_phred"],
+        u=config["params"]["fastp"]["unqualified_percent_limit"]
+    shell:
+        "fastp -i {input.r1} -I {input.r2} -o {output.r1} -O {output.r2} "
+        "--length_required {params.length} --qualified_quality_phred {params.q} "
+        "--unqualified_percent_limit {params.u} --thread {threads} "
+        "--html {output.html} --json {output.json}"
+
+rule merge_units:
+    input:
+        lambda wc: expand(f"{OUTDIR}/clean/{{sample}}_{{unit}}_R1.clean.fastq.gz", sample=wc.sample, unit=units_for_sample(wc.sample)),
+        lambda wc: expand(f"{OUTDIR}/clean/{{sample}}_{{unit}}_R2.clean.fastq.gz", sample=wc.sample, unit=units_for_sample(wc.sample))
+    output:
+        r1=f"{OUTDIR}/clean/{{sample}}_R1.clean.fastq.gz",
+        r2=f"{OUTDIR}/clean/{{sample}}_R2.clean.fastq.gz"
+    shell:
+        "cat {input[0]} > {output.r1}; cat {input[1]} > {output.r2}"
+
+rule kraken2:
+    input:
+        r1=f"{OUTDIR}/clean/{{sample}}_R1.clean.fastq.gz",
+        r2=f"{OUTDIR}/clean/{{sample}}_R2.clean.fastq.gz"
+    output:
+        report=f"{OUTDIR}/taxonomy/kraken2/{{sample}}.report",
+        classified=f"{OUTDIR}/taxonomy/kraken2/{{sample}}.classified#.fq"
+    threads: 16
+    conda: "envs/taxonomy.yaml"
+    params:
+        db=config["databases"]["kraken2"]
+    shell:
+        "kraken2 --db {params.db} --threads {threads} --paired --gzip-compressed "
+        "--report {output.report} --classified-out {output.classified} {input.r1} {input.r2}"
+
+rule bracken:
+    input:
+        report=f"{OUTDIR}/taxonomy/kraken2/{{sample}}.report"
+    output:
+        f"{OUTDIR}/taxonomy/bracken/{{sample}}.bracken"
+    conda: "envs/taxonomy.yaml"
+    params:
+        db=config["databases"]["bracken"],
+        read_length=config["params"]["bracken"]["read_length"],
+        level=config["params"]["bracken"]["level"]
+    shell:
+        "bracken -d {params.db} -i {input.report} -o {output} -r {params.read_length} -l {params.level}"
+
+rule megahit:
+    input:
+        r1=f"{OUTDIR}/clean/{{sample}}_R1.clean.fastq.gz",
+        r2=f"{OUTDIR}/clean/{{sample}}_R2.clean.fastq.gz"
+    output:
+        f"{OUTDIR}/assembly/{{sample}}/final.contigs.fa"
+    threads: 24
+    conda: "envs/assembly.yaml"
+    params:
+        out=f"{OUTDIR}/assembly/{{sample}}",
+        min_len=config["params"]["megahit"]["min_contig_len"]
+    shell:
+        "megahit -1 {input.r1} -2 {input.r2} -o {params.out} --min-contig-len {params.min_len} -t {threads}"
+
+rule prodigal_meta:
+    input:
+        f"{OUTDIR}/assembly/{{sample}}/final.contigs.fa"
+    output:
+        faa=f"{OUTDIR}/genes/{{sample}}/proteins.faa",
+        fna=f"{OUTDIR}/genes/{{sample}}/genes.fna",
+        gff=f"{OUTDIR}/genes/{{sample}}/genes.gff"
+    conda: "envs/genes.yaml"
+    shell:
+        "mkdir -p {OUTDIR}/genes/{wildcards.sample}; "
+        "prodigal -p meta -i {input} -a {output.faa} -d {output.fna} -f gff -o {output.gff}"
+
+rule eggnog_mapper:
+    input:
+        f"{OUTDIR}/genes/{{sample}}/proteins.faa"
+    output:
+        f"{OUTDIR}/functional/eggnog/{{sample}}.annotations"
+    threads: 16
+    conda: "envs/functional.yaml"
+    params:
+        outprefix=f"{OUTDIR}/functional/eggnog/{{sample}}",
+        data_dir=config["databases"]["eggnog"]
+    shell:
+        "mkdir -p {OUTDIR}/functional/eggnog; "
+        "emapper.py -i {input} --itype proteins --cpu {threads} --data_dir {params.data_dir} "
+        "--output {wildcards.sample} --output_dir {OUTDIR}/functional/eggnog; "
+        "cp {OUTDIR}/functional/eggnog/{wildcards.sample}.emapper.annotations {output}"
+
+rule map_to_contigs:
+    input:
+        contigs=f"{OUTDIR}/assembly/{{sample}}/final.contigs.fa",
+        r1=f"{OUTDIR}/clean/{{sample}}_R1.clean.fastq.gz",
+        r2=f"{OUTDIR}/clean/{{sample}}_R2.clean.fastq.gz"
+    output:
+        bam=f"{OUTDIR}/mapping/{{sample}}.sorted.bam",
+        bai=f"{OUTDIR}/mapping/{{sample}}.sorted.bam.bai"
+    threads: 16
+    conda: "envs/mapping.yaml"
+    shell:
+        "mkdir -p {OUTDIR}/mapping; "
+        "bowtie2-build {input.contigs} {OUTDIR}/mapping/{wildcards.sample}.contigs; "
+        "bowtie2 -x {OUTDIR}/mapping/{wildcards.sample}.contigs -1 {input.r1} -2 {input.r2} -p {threads} | "
+        "samtools sort -@ {threads} -o {output.bam}; samtools index {output.bam}"
+
+rule metabat2:
+    input:
+        contigs=f"{OUTDIR}/assembly/{{sample}}/final.contigs.fa",
+        bam=f"{OUTDIR}/mapping/{{sample}}.sorted.bam"
+    output:
+        done=f"{OUTDIR}/binning/metabat2/{{sample}}/bins.done"
+    threads: 16
+    conda: "envs/binning.yaml"
+    params:
+        depth=f"{OUTDIR}/binning/metabat2/{{sample}}/depth.txt",
+        outprefix=f"{OUTDIR}/binning/metabat2/{{sample}}/bin",
+        min_len=config["params"]["binning"]["min_contig_len"]
+    shell:
+        "mkdir -p {OUTDIR}/binning/metabat2/{wildcards.sample}; "
+        "jgi_summarize_bam_contig_depths --outputDepth {params.depth} {input.bam}; "
+        "metabat2 -i {input.contigs} -a {params.depth} -o {params.outprefix} -t {threads} -m {params.min_len}; "
+        "touch {output.done}"
+
+rule checkm2:
+    input:
+        done=f"{OUTDIR}/binning/metabat2/{{sample}}/bins.done"
+    output:
+        f"{OUTDIR}/mags/checkm2/{{sample}}/quality_report.tsv"
+    threads: 16
+    conda: "envs/mag_qc.yaml"
+    params:
+        bins=f"{OUTDIR}/binning/metabat2/{{sample}}",
+        db=config["databases"].get("checkm2", "")
+    shell:
+        "mkdir -p {OUTDIR}/mags/checkm2/{wildcards.sample}; "
+        "checkm2 predict --threads {threads} --input {params.bins} --output-directory {OUTDIR}/mags/checkm2/{wildcards.sample} "
+        "--database_path {params.db} --extension fa"
+
+rule multiqc:
+    input:
+        qc_targets
+    output:
+        f"{OUTDIR}/qc/multiqc/multiqc_report.html"
+    conda: "envs/qc.yaml"
+    shell:
+        "multiqc {OUTDIR} -o {OUTDIR}/qc/multiqc"
+
+rule summarize:
+    input:
+        expand(f"{OUTDIR}/qc/fastp/{{sample}}_{{unit}}.json", zip, sample=UNITS.sample_id, unit=UNITS.unit)
+    output:
+        f"{OUTDIR}/summary/sample_qc_summary.tsv"
+    conda: "envs/python.yaml"
+    script:
+        "../scripts/summarize_fastp.py"
