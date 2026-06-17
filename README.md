@@ -1,21 +1,14 @@
 # SoilMetagenomeFlow
 
-**Reproducible, scalable shotgun metagenomics pipeline for soil samples starting from raw paired-end FASTQ files.**
+**Reproducible, scalable shotgun metagenomics pipeline for samples starting from raw paired-end FASTQ files.**
 
-This repository is designed as a GitHub-ready template for soil metagenomics projects. It uses **Snakemake + Conda** and can run locally or on SLURM clusters. The workflow is modular, so it can be used for pilot datasets, full projects, or new soil metagenome collections with minimal changes.
+This repository is designed as a GitHub-ready template for metagenomics projects. It uses **Snakemake + Conda** and can run locally or on SLURM clusters. The workflow is modular, so it can be used for pilot datasets, full projects, or new metagenome collections with minimal changes.
 
 ---
 
 ## 1. Scientific rationale
 
-Soil shotgun metagenomics aims to characterize the taxonomic and functional potential of microbial communities directly from environmental DNA. A robust soil metagenome workflow should address four linked questions:
-
-1. **Data quality** — Are raw reads technically reliable after trimming and filtering?
-2. **Community composition** — Which bacteria, archaea, fungi, protists or viruses are detectable?
-3. **Functional potential** — Which genes, pathways, enzymes, resistance genes or biosynthetic functions are encoded?
-4. **Genome reconstruction** — Can metagenome-assembled genomes, MAGs, be recovered for dominant or ecologically relevant organisms?
-
-Soil is especially challenging because it has high microbial diversity, uneven abundance, humic contaminants, fragmented assemblies and many poorly represented lineages in reference databases. For that reason, this pipeline combines both **read-based profiling** and **assembly-based analysis**:
+Several components of this workflow derive from methodologies developed during research on symbiotic systems  and environmental metagenomics, including genome assembly, metagenomic binning, MAG reconstruction and functional annotation across diverse microbial and eukaryotic communities.
 
 - Read-based taxonomy is fast and useful for sample comparison.
 - Assembly-based gene prediction improves functional interpretation.
@@ -222,36 +215,18 @@ Once the pipeline has generated taxonomic and functional tables, typical downstr
 - MAG ecology: MAG abundance versus soil chemistry, vegetation, treatment or geography.
 - Functional guilds: carbohydrate metabolism, nitrogen cycling, sulfur cycling, stress response, antibiotic resistance, biosynthetic gene clusters.
 
-For soil metagenomics, avoid interpreting raw relative abundances as absolute biomass. Whenever possible, combine shotgun data with soil chemistry, DNA yield, qPCR or spike-in controls.
+For soil metagenomics, avoid interpreting raw relative abundances as absolute biomass. Whenever possible, combine shotgun data with metabarcoding, soil chemistry, DNA yield, qPCR or spike-in controls.
 
 ---
 
-## 11. GitHub checklist
 
-Before uploading:
+## 11. Citation suggestion
 
-```bash
-git init
-git add README.md LICENSE environment.yaml config metadata workflow scripts profiles .github run_local.sh run_slurm.sh .gitignore
-git commit -m "Initial soil metagenomics pipeline"
-git branch -M main
-git remote add origin git@github.com:USER/soil-metagenomics-pipeline.git
-git push -u origin main
-```
-
-Do not upload raw FASTQ files, BAM files, results folders or databases.
+If you use this pipeline in a poster, talk or manuscript, cite it as: https://doi.org/10.5281/zenodo.20700718
 
 ---
 
-## 12. Citation suggestion
-
-If you use this pipeline in a poster, talk or manuscript, cite it as:
-
-> SoilMetagenomeFlow: a reproducible Snakemake workflow for soil shotgun metagenomics from raw FASTQ files to taxonomic profiles, functional annotations and metagenome-assembled genomes.
-
----
-
-## 13. Roadmap
+## 12. Roadmap
 
 Planned optional modules:
 
